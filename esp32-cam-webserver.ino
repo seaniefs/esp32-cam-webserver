@@ -736,7 +736,7 @@ void setup() {
             debugOff();
         #endif
     } else {
-        Serial.printf("\r\nCamera unavailable due to initialisation errors.\r\n\r\n");
+        Serial.printf("\r\nCamera unavailable due to initialisation errors [%s].\r\n\r\n", critERR.c_str());
     }
 
     // Used when dumping status; these are slow functions, so just do them once during startup

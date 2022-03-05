@@ -216,9 +216,33 @@ static esp_err_t capture_handler(httpd_req_t *req){
     return res;
 }
 
+static int sendData(httpd_req_t *req, const char *buf, const size_t len) {
+    size_t index = 0;
+    int res = 0;
+    int attempts = 0;
+    const int maxAttempts = 100;
+    do {
+        res = httpd_send(req, &buf[index], len - index);
+        if ((res >= 0 && res < (len - index)) || res == HTTPD_SOCK_ERR_TIMEOUT) {
+            delay(10);
+            attempts++;
+	    if (res == HTTPD_SOCK_ERR_TIMEOUT && attempts < maxAttempts) {
+	        res = 0;
+	    }
+        }
+        if (res >= 0) {
+            index += res;
+        }
+    }
+    while(res >= 0 && index < len && attempts < maxAttempts);
+    if (index < len && attempts >= maxAttempts) {
+        res = -1;
+    }
+    return res;
+}
+
 static esp_err_t stream_handler(httpd_req_t *req){
     camera_fb_t * fb = NULL;
-    esp_err_t res = ESP_OK;
     size_t _jpg_buf_len = 0;
     uint8_t * _jpg_buf = NULL;
     char * part_buf[64];
@@ -235,39 +259,65 @@ static esp_err_t stream_handler(httpd_req_t *req){
         last_frame = esp_timer_get_time();
     }
 
-    res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
-    if(res != ESP_OK){
+    const char *httpd_chunked_hdr_str = "HTTP/1.1 %s%sContent-Type: %s%s";
+    const char *colon_separator = ": ";
+    const char *cr_lf_seperator = "\r\n";
+    static char buffer[256 + 1];
+    const int headerSize = snprintf(buffer, sizeof(buffer) - 1, httpd_chunked_hdr_str, "200 OK", cr_lf_seperator, _STREAM_CONTENT_TYPE, cr_lf_seperator);
+    int res = sendData(req, buffer, headerSize);
+    if (res != headerSize) {
+        // TODO: Make a lambda so as we can re-use...
+        streamCount = 0;
+        if (autoLamp && (lampVal != -1)) setLamp(0);
+        Serial.println("STREAM: failed to set HTTP response type");
+        return res;
+    }
+    const int originSize = snprintf(buffer, sizeof(buffer) - 1, "Access-Control-Allow-Origin: *%s", cr_lf_seperator);
+    res = sendData(req, buffer, originSize);
+    if (res != originSize) {
+        // TODO: Make a lambda so as we can re-use...
         streamCount = 0;
         if (autoLamp && (lampVal != -1)) setLamp(0);
         Serial.println("STREAM: failed to set HTTP response type");
         return res;
     }
 
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
     while(true){
         fb = esp_camera_fb_get();
         if (!fb) {
             Serial.println("STREAM: failed to acquire frame");
-            res = ESP_FAIL;
+            res = -1;
         } else {
             if(fb->format != PIXFORMAT_JPEG){
                 Serial.println("STREAM: Non-JPEG frame returned by camera module");
-                res = ESP_FAIL;
+                res = -2;
             } else {
                 _jpg_buf_len = fb->len;
                 _jpg_buf = fb->buf;
             }
         }
-        if(res == ESP_OK){
-            res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+        if(res > 0){
+            res = sendData(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+            if (res != strlen(_STREAM_BOUNDARY)) {
+                res = -3;
+            }
         }
-        if(res == ESP_OK){
+        if(res > 0){
             size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
-            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
+            res = sendData(req, (const char *)part_buf, hlen);
+            if (res != hlen) {
+                res = -4;
+            }
         }
-        if(res == ESP_OK){
-            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+        if(res > 0){
+            yield();
+            res = sendData(req, (const char *)_jpg_buf, _jpg_buf_len);
+            if (res != _jpg_buf_len) {
+                Serial.printf("Failed sending chunk of [%d] error: [%d]\n", _jpg_buf_len, res);
+                Serial.print(_STREAM_BOUNDARY);
+                Serial.printf((char *)part_buf);
+                res = -5;
+            }
         }
         if(fb){
             esp_camera_fb_return(fb);
@@ -277,7 +327,7 @@ static esp_err_t stream_handler(httpd_req_t *req){
             free(_jpg_buf);
             _jpg_buf = NULL;
         }
-        if(res != ESP_OK){
+        if(res < 0){
             // This is the only exit point from the stream loop.
             // We end the stream here only if a Hard failure has been encountered or the connection has been interrupted.
             break;
@@ -297,7 +347,7 @@ static esp_err_t stream_handler(httpd_req_t *req){
     if (autoLamp && (lampVal != -1)) setLamp(0);
     Serial.println("Stream ended");
     last_frame = 0;
-    return res;
+    return res < 0 ? ESP_FAIL : ESP_OK;
 }
 
 static esp_err_t cmd_handler(httpd_req_t *req){
