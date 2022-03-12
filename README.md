@@ -16,7 +16,7 @@ But expanded with:
 And 'reduced' by removing the Face Recognition features 
 * **If you want to try the Face Recognition features** please use the [`3.x` maintenance branch](https://github.com/easytarget/esp32-cam-webserver/tree/3.x), which still recieves bugfixes, but is not receiving any further development.
 * They were a demo, only worked in low resolution modes, did not preserve the face database between power cycles, and were of little use in real-world applications.
-* There are other (specialised) sketches for the ESP-CAM that do use face recognitioni more effectively, if this is your thing :-)
+* There are other (specialised) sketches for the ESP-CAM that do use face recognition more effectively, if this is your thing :-)
 
 The original example is a bit incomprehensible and hard to modify as supplied. It is very focused on showing off the face recognition capabilities, and forgets the 'webcam' part.
 * There are many other variants of a webcam server for these modules online, but most are created for a specific scenario and not good for general, casual, webcam use.
@@ -35,6 +35,9 @@ https://github.com/raphaelbs/esp32-cam-ai-thinker
 https://wiki.ai-thinker.com/esp32-cam
 * Default pinouts are also included for WRover Kit, ESP Eye and M5Stack esp32 camera modules. 
   I do not have any of these boards, so they are untested by me. Please [let me know](https://github.com/easytarget/esp32-cam-webserver/issues) if you find issues or have a board not [in the list](./camera_pins.h).
+
+ * Default pinouts for serial for AI Thinker:
+   * 5V and GND are obvious but TX and RX aren't - connect Serial Boards RX to VoT and TX to VnR
 
 ## Troubleshooting:
 
